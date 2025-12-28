@@ -12,6 +12,10 @@
 
 ---
 
+![Architecture Infographic](infographie.png)
+
+---
+
 ## 🌍 Présentation (Français)
 
 **Discord C2** est un framework de post-exploitation furtif qui utilise l'infrastructure de Discord comme canal de communication. En utilisant un bot Discord comme intermédiaire, le trafic C2 se fond dans le trafic HTTPS légitime, rendant la détection difficile pour les pare-feux traditionnels.
