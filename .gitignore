@@ -1,0 +1,20 @@
+# Environment Variables
+.env
+
+# Temporary Files
+tmp/
+
+# Binaries
+bin/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDEs
+.vscode/
+.idea/
+
+# Go
+vendor/
+go.sum

