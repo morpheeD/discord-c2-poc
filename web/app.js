@@ -1,14 +1,12 @@
 let currentAgent = null;
 let lastLogId = 0;
-let agentsData = []; // Store full agent objects
+let agentsData = [];
 
-// Initialize
 document.addEventListener('DOMContentLoaded', () => {
-    // Poll for agents and logs
+    // Poll for active agents
     setInterval(fetchAgents, 2000);
     setInterval(fetchLogs, 1000);
 
-    // Handle Command Input
     const cmdInput = document.getElementById('cmd-input');
     cmdInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -21,7 +19,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
-// Fetch Agents List
 async function fetchAgents() {
     try {
         const response = await fetch('/api/agents');
@@ -29,7 +26,6 @@ async function fetchAgents() {
 
         if (!agents) return;
 
-        // Update local data
         agentsData = agents;
         renderAgentsList();
 
@@ -38,14 +34,10 @@ async function fetchAgents() {
     }
 }
 
-// Render Agents List
 function renderAgentsList() {
     const listContainer = document.getElementById('agents-list');
-    // Don't clear everything to avoid flickering, but for simplicity we rebuild
-    // Ideally we should diff, but for now let's just rebuild.
     listContainer.innerHTML = '';
 
-    // Add "ALL" option
     const allItem = document.createElement('div');
     allItem.className = `agent-item ${currentAgent === 'ALL' ? 'active' : ''}`;
     allItem.innerHTML = `
@@ -55,8 +47,6 @@ function renderAgentsList() {
     allItem.onclick = () => selectAgent('ALL');
     listContainer.appendChild(allItem);
 
-    // Add individual agents
-    // agentsData is now an array of objects: {name, status, lastSeen}
     agentsData.forEach(agent => {
         const item = document.createElement('div');
         item.className = `agent-item ${currentAgent === agent.name ? 'active' : ''}`;
@@ -74,28 +64,22 @@ function renderAgentsList() {
     });
 }
 
-// Select Agent
 function selectAgent(agent) {
     currentAgent = agent;
     
-    // Update UI
     document.getElementById('empty-state').style.display = 'none';
     document.getElementById('agent-dashboard').style.display = 'flex';
     
-    // Update active state in list
     renderAgentsList();
 
-    // Clear terminal and reload logs for this agent
     document.getElementById('terminal-container').innerHTML = '';
-    lastLogId = 0; // Reset log counter to fetch all history
+    lastLogId = 0;
     fetchLogs();
 }
 
-// Send Command
 async function sendCommand(command) {
     if (!currentAgent) return;
 
-    // Optimistic UI update
     addLogToTerminal({
         source: 'Server',
         content: `> ${command}`,
@@ -121,7 +105,6 @@ async function sendCommand(command) {
     }
 }
 
-// Fetch Logs
 async function fetchLogs() {
     if (!currentAgent) return;
 
@@ -133,11 +116,6 @@ async function fetchLogs() {
 
         logs.forEach(log => {
             lastLogId = Math.max(lastLogId, log.id);
-            
-            // Filter logs: Show if source is the current agent OR if source is Server (commands sent)
-            // Note: Server logs don't have a target field in the current backend implementation, 
-            // so we show all server logs or try to filter by content if possible.
-            // For now, we show all logs if "ALL" is selected, or filter by source if specific agent.
             
             if (currentAgent === 'ALL' || log.source === currentAgent || log.source === 'Server') {
                 addLogToTerminal(log);
