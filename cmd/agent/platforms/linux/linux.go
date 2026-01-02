@@ -3,6 +3,7 @@
 package linux
 
 import (
+	"fmt"
 	"os/exec"
 )
 
@@ -36,4 +37,9 @@ func (p *LinuxPlatform) GetKeylogs() string {
 // DumpBrowsers does nothing on Linux.
 func (p *LinuxPlatform) DumpBrowsers() string {
 	return "Browser password dumping not implemented for Linux."
+}
+
+// Screenshot does nothing on Linux.
+func (p *LinuxPlatform) Screenshot() ([]byte, error) {
+	return nil, fmt.Errorf("screenshot not implemented for Linux")
 }

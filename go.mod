@@ -6,7 +6,9 @@ require (
 	github.com/bwmarrin/discordgo v0.27.1
 	github.com/joho/godotenv v1.5.1
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
+	github.com/keybase/go-keychain v0.0.1
 	github.com/mattn/go-sqlite3 v1.14.32
+	golang.org/x/crypto v0.32.0
 	golang.org/x/sys v0.39.0
 )
 
@@ -16,5 +18,4 @@ require (
 	github.com/gorilla/websocket v1.4.2 // indirect
 	github.com/jezek/xgb v1.1.1 // indirect
 	github.com/lxn/win v0.0.0-20210218163916-a377121e959e // indirect
-	golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b // indirect
 )
