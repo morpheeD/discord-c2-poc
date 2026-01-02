@@ -1,7 +1,7 @@
 # 🛡️ Discord C2 - Advanced Command & Control Framework
 
 ![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?style=flat&logo=go)
-![Platform](https://img.shields.io/badge/Platform-Windows-blue?style=flat&logo=windows)
+![Platform](https://img.shields.io/badge/Platform-Windows%2C%20Linux%2C%20macOS-blue?style=flat&logo=windows)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 > **⚠️ DISCLAIMER / AVERTISSEMENT**
@@ -55,7 +55,7 @@ This project features an **Agent** (implant) deployed on the target, a **Server*
 *   **Credential Harvesting**:
     *   `!dumppass`: Decrypt and dump saved passwords from browsers (Chrome, Edge, Brave).
 *   **Persistence**:
-    *   `!persist`: Install the agent in the Windows Startup folder.
+    *   `!persist`: Install persistence on the target machine (Windows, Linux, macOS).
 *   **Stealth & Evasion**:
     *   **Single Instance**: Uses a Global Mutex to prevent multiple instances.
     *   **Hidden Window**: Runs silently in the background.
@@ -120,18 +120,15 @@ ENCRYPTION_KEY=this_must_be_exactly_32_bytes_long!!
 
 ### 3. Building
 
-#### Automatic Build (Recommended)
-Use the PowerShell script to build the agent with configuration injected and optional obfuscation.
+#### Building
+Use the Go build script to compile the server and agents for all supported platforms.
 
-```powershell
-# Build the Agent (Client)
-.\build_standalone.ps1
-
-# Build the Server (Controller)
-go build -o bin/server.exe ./cmd/server
+```bash
+# Build the server and all agent binaries
+go run build.go
 ```
 
-*Note: The script automatically checks for `garble` to obfuscate the binary. If not found, it uses standard `go build`.*
+The compiled binaries will be placed in the `dist` directory.
 
 ---
 
@@ -139,12 +136,12 @@ go build -o bin/server.exe ./cmd/server
 
 ### 1. Start the C2 Server
 ```bash
-./bin/server.exe
+./dist/server
 ```
 The Web Dashboard will be available at `http://localhost:8080`.
 
 ### 2. Deploy the Agent
-Transfer `bin/agent_standalone.exe` to the target machine and execute it.
+Transfer the appropriate agent binary from the `dist` directory to the target machine and execute it.
 It will run silently in the background.
 
 ### 3. Commands (Web Dashboard)
@@ -176,7 +173,9 @@ Strategies to detect this C2 activity:
     *   Check for the Mutex `Global\DiscordC2AgentMutex`.
 
 3.  **File Artifacts**:
-    *   Persistence is installed in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SecurityHealthSystray.exe`.
+    *   **Windows**: Persistence is installed in `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\SecurityHealthSystray.exe`.
+    *   **Linux**: A systemd service is created at `/etc/systemd/system/discord-c2-agent.service`.
+    *   **macOS**: A LaunchAgent is created at `~/Library/LaunchAgents/com.discordc2.agent.plist`.
 
 ---
 
