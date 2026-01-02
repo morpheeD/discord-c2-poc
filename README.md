@@ -130,6 +130,8 @@ go run build.go
 
 The compiled binaries will be placed in the `dist` directory.
 
+*Note: The build script automatically checks for `garble` to obfuscate the agent binaries. If not found, it uses the standard `go build` command.*
+
 ---
 
 ## 🎮 Usage
