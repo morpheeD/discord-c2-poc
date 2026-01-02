@@ -70,9 +70,11 @@ func isCapsLockOn() bool {
 }
 
 func keyToString(key int) string {
-	isShift := (procGetAsyncKeyState.Call(0x10) & 0x8000) != 0
+	isShiftRet, _, _ := procGetAsyncKeyState.Call(0x10)
+	isShift := (isShiftRet & 0x8000) != 0
 	isCaps := isCapsLockOn()
-	isCtrl := (procGetAsyncKeyState.Call(0x11) & 0x8000) != 0
+	isCtrlRet, _, _ := procGetAsyncKeyState.Call(0x11)
+	isCtrl := (isCtrlRet & 0x8000) != 0
 
 	if isCtrl {
 		return "" // Ignore ctrl combinations for now
