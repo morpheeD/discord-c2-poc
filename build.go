@@ -101,5 +101,5 @@ func getBuildCommand(outputPath, ldflags string) (*exec.Cmd, error) {
 		return nil, err
 	}
 
-	return exec.Command(garblePath, "-o", outputPath, "build", "-ldflags", ldflags, "./cmd/agent"), nil
+	return exec.Command(garblePath, "build", "-o", outputPath, "-ldflags", ldflags, "./cmd/agent"), nil
 }
