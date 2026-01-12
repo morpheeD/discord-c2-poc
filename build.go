@@ -40,6 +40,7 @@ func main() {
 		{"windows", "amd64"},
 		{"linux", "amd64"},
 		{"darwin", "amd64"},
+		{"ios", "arm64"},
 	}
 
 	for _, target := range targets {
@@ -59,13 +60,24 @@ func buildAgent(target Target, ldflags string) {
 
 	log.Printf("Building agent for %s/%s...", target.GOOS, target.GOARCH)
 
-	cmd, err := getBuildCommand(outputPath, ldflags)
-	if err != nil {
-		log.Printf("Skipping garble for agent: %v", err)
+	var cmd *exec.Cmd
+	var err error
+
+	if target.GOOS == "ios" {
+		log.Println("iOS build requires a different build mode. Using standard go build.")
 		cmd = exec.Command("go", "build", "-ldflags", ldflags, "-o", outputPath, "./cmd/agent")
+	} else {
+		cmd, err = getBuildCommand(outputPath, ldflags, target)
+		if err != nil {
+			log.Printf("Skipping garble for agent: %v", err)
+			cmd = exec.Command("go", "build", "-ldflags", ldflags, "-o", outputPath, "./cmd/agent")
+		}
 	}
 
 	cmd.Env = append(os.Environ(), "GOOS="+target.GOOS, "GOARCH="+target.GOARCH)
+	if target.GOOS == "ios" {
+		cmd.Env = append(cmd.Env, "CGO_ENABLED=1")
+	}
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -95,7 +107,10 @@ func buildServer() {
 	log.Printf("Successfully built server at %s", outputPath)
 }
 
-func getBuildCommand(outputPath, ldflags string) (*exec.Cmd, error) {
+func getBuildCommand(outputPath, ldflags string, target Target) (*exec.Cmd, error) {
+	if target.GOOS == "ios" {
+		return nil, fmt.Errorf("garble not supported for iOS")
+	}
 	garblePath, err := exec.LookPath("garble")
 	if err != nil {
 		return nil, err

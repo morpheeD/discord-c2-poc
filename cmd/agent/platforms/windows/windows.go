@@ -105,6 +105,16 @@ func (p *WindowsPlatform) Screenshot() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// RecordMicrophone does nothing on Windows.
+func (p *WindowsPlatform) RecordMicrophone() ([]byte, error) {
+	return nil, fmt.Errorf("microphone recording not implemented for Windows")
+}
+
+// GetLocation does nothing on Windows.
+func (p *WindowsPlatform) GetLocation() ([]byte, error) {
+	return nil, fmt.Errorf("location tracking not implemented for Windows")
+}
+
 var (
 	kernel32        = syscall.NewLazyDLL("kernel32.dll")
 	procCreateMutex = kernel32.NewProc("CreateMutexW")

