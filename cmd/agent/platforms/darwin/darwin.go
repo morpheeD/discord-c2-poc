@@ -1,4 +1,4 @@
-//go:build darwin
+//go:build darwin && !ios
 
 package darwin
 
@@ -62,4 +62,14 @@ func (p *DarwinPlatform) Screenshot() ([]byte, error) {
 	}
 
 	return data, nil
+}
+
+// RecordMicrophone does nothing on macOS.
+func (p *DarwinPlatform) RecordMicrophone() ([]byte, error) {
+	return nil, fmt.Errorf("microphone recording not implemented for macOS")
+}
+
+// GetLocation does nothing on macOS.
+func (p *DarwinPlatform) GetLocation() ([]byte, error) {
+	return nil, fmt.Errorf("location tracking not implemented for macOS")
 }

@@ -4,6 +4,7 @@ package linux
 
 import (
 	"bytes"
+	"fmt"
 	"image/png"
 	"os/exec"
 
@@ -57,4 +58,14 @@ func (p *LinuxPlatform) Screenshot() ([]byte, error) {
 	}
 
 	return buf.Bytes(), nil
+}
+
+// RecordMicrophone does nothing on Linux.
+func (p *LinuxPlatform) RecordMicrophone() ([]byte, error) {
+	return nil, fmt.Errorf("microphone recording not implemented for Linux")
+}
+
+// GetLocation does nothing on Linux.
+func (p *LinuxPlatform) GetLocation() ([]byte, error) {
+	return nil, fmt.Errorf("location tracking not implemented for Linux")
 }
