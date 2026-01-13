@@ -3,11 +3,12 @@
 package ios
 
 /*
-#cgo CFLAGS: -x objective-c
-#cgo LDFLAGS: -framework UIKit -framework Foundation -framework CoreGraphics
+#cgo CFLAGS: -x objective-c -fobjc-arc
+#cgo LDFLAGS: -framework UIKit -framework Foundation -framework CoreGraphics -framework CoreLocation
 
 #import <UIKit/UIKit.h>
 #import <Foundation/Foundation.h>
+#import <CoreLocation/CoreLocation.h>
 #import <stdlib.h>
 #import <string.h>
 
@@ -82,9 +83,84 @@ void FreeImageData(void* ptr) {
     free(ptr);
 }
 
+// Location Implementation
+
+typedef struct {
+    double latitude;
+    double longitude;
+    char* error;
+} LocationResult;
+
+@interface LocationDelegate : NSObject <CLLocationManagerDelegate>
+@property (nonatomic, strong) CLLocationManager *locationManager;
+@property (nonatomic, strong) CLLocation *location;
+@property (nonatomic, strong) NSError *error;
+@end
+
+@implementation LocationDelegate
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        self.locationManager = [[CLLocationManager alloc] init];
+        self.locationManager.delegate = self;
+        self.locationManager.desiredAccuracy = kCLLocationAccuracyBest;
+    }
+    return self;
+}
+
+- (void)start {
+    [self.locationManager requestWhenInUseAuthorization];
+    [self.locationManager requestLocation];
+}
+
+- (void)locationManager:(CLLocationManager *)manager didUpdateLocations:(NSArray<CLLocation *> *)locations {
+    self.location = [locations lastObject];
+    CFRunLoopStop(CFRunLoopGetCurrent());
+}
+
+- (void)locationManager:(CLLocationManager *)manager didFailWithError:(NSError *)error {
+    self.error = error;
+    CFRunLoopStop(CFRunLoopGetCurrent());
+}
+
+@end
+
+LocationResult GetLocationInternal() {
+    LocationResult result;
+    result.latitude = 0;
+    result.longitude = 0;
+    result.error = NULL;
+
+    LocationDelegate *delegate = [[LocationDelegate alloc] init];
+
+    // Safety timeout (10 seconds)
+    [NSTimer scheduledTimerWithTimeInterval:10.0 repeats:NO block:^(NSTimer *timer) {
+        CFRunLoopStop(CFRunLoopGetCurrent());
+    }];
+
+    [delegate start];
+
+    // Run the loop. This blocks until CFRunLoopStop is called (by delegate or timer).
+    CFRunLoopRun();
+
+    if (delegate.error) {
+        const char *errStr = [[delegate.error localizedDescription] UTF8String];
+        result.error = strdup(errStr);
+    } else if (delegate.location) {
+        result.latitude = delegate.location.coordinate.latitude;
+        result.longitude = delegate.location.coordinate.longitude;
+    } else {
+        result.error = strdup("Location request timed out or failed silently");
+    }
+
+    return result;
+}
+
 */
 import "C"
 import (
+	"encoding/json"
 	"fmt"
 	"unsafe"
 )
@@ -141,7 +217,21 @@ func (p *IOSPlatform) RecordMicrophone() ([]byte, error) {
 	return nil, fmt.Errorf("microphone recording not implemented for iOS")
 }
 
-// GetLocation does nothing on iOS.
+// GetLocation returns the current location coordinates.
 func (p *IOSPlatform) GetLocation() ([]byte, error) {
-	return nil, fmt.Errorf("location tracking not implemented for iOS")
+	res := C.GetLocationInternal()
+	if res.error != nil {
+		defer C.free(unsafe.Pointer(res.error))
+		return nil, fmt.Errorf("%s", C.GoString(res.error))
+	}
+
+	loc := struct {
+		Latitude  float64 `json:"latitude"`
+		Longitude float64 `json:"longitude"`
+	}{
+		Latitude:  float64(res.latitude),
+		Longitude: float64(res.longitude),
+	}
+
+	return json.Marshal(loc)
 }
