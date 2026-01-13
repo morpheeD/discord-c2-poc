@@ -130,6 +130,23 @@ go run build.go
 
 The compiled binaries will be placed in the `dist` directory.
 
+### 4. Compiling for iOS
+
+**Prerequisites:**
+*   macOS machine with Xcode installed (iOS SDK required).
+*   `CGO_ENABLED=1` (handled by the build script).
+
+**Build:**
+Run the standard build command:
+```bash
+go run build.go
+```
+The iOS agent will be compiled to `dist/ios-arm64/agent`.
+
+**Notes:**
+*   The output is a raw binary. To run it on a non-jailbroken device, you may need to package it into an App Bundle and sign it.
+*   Features like **Location Tracking** require proper `Info.plist` configuration (e.g., `NSLocationWhenInUseUsageDescription`) and user permissions. If running as a standalone binary, ensure it has the necessary entitlements.
+
 ---
 
 ## 🎮 Usage
